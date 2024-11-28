@@ -2,7 +2,8 @@ local api, if_nil = vim.api, vim.F.if_nil
 
 local M = {}
 
-local _qf_id = nil
+---@type table<string, integer>
+local _qf_ids = {}
 
 --- [diagnostic-structure]()
 ---
@@ -834,6 +835,15 @@ local function get_diagnostics(bufnr, opts, clamp)
   return diagnostics
 end
 
+local function serialize_qf_context(context)
+  return string.format(
+    "%d:%d:%s",
+    context.bufnr or 0,
+    context.namespace or 0,
+    context.title
+  )
+end
+
 --- @param loclist boolean
 --- @param opts vim.diagnostic.setqflist.Opts|vim.diagnostic.setloclist.Opts?
 local function set_list(loclist, opts)
@@ -845,6 +855,11 @@ local function set_list(loclist, opts)
   if loclist then
     bufnr = api.nvim_win_get_buf(winnr)
   end
+  local context = serialize_qf_context({
+    bufnr = bufnr,
+    title = title,
+    namespace = opts.namespace,
+  })
   -- Don't clamp line numbers since the quickfix list can already handle line
   -- numbers beyond the end of the buffer
   local diagnostics = get_diagnostics(bufnr, opts --[[@as vim.diagnostic.GetOpts]], false)
@@ -853,21 +868,22 @@ local function set_list(loclist, opts)
     vim.fn.setloclist(winnr, {}, 'u', { title = title, items = items })
   else
     -- Check if the diagnostics quickfix list no longer exists.
-    if _qf_id and vim.fn.getqflist({ id = _qf_id }).id == 0 then
-      _qf_id = nil
+    local context_qf_id = _qf_ids[context]
+    if context_qf_id and vim.fn.getqflist({ id = context_qf_id }).id == 0 then
+      _qf_ids[context] = nil
     end
 
     -- If we already have a diagnostics quickfix, update it rather than creating a new one.
     -- This avoids polluting the finite set of quickfix lists, and preserves the currently selected
     -- entry.
-    vim.fn.setqflist({}, _qf_id and 'u' or ' ', {
+    vim.fn.setqflist({}, context_qf_id and 'u' or ' ', {
       title = title,
       items = items,
-      id = _qf_id,
+      id = context_qf_id[context],
     })
 
     -- Get the id of the newly created quickfix list.
-    _qf_id = vim.fn.getqflist({ id = 0 }).id
+    _qf_ids[context] = vim.fn.getqflist({ id = 0 }).id
   end
   if open then
     api.nvim_command(loclist and 'lwindow' or 'botright cwindow')
