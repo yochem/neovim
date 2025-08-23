@@ -24,14 +24,14 @@
   text: (_) @label)
 
 (taglink
-  "|" @markup.link
+  "|" @markup.link.url
   (#set! conceal ""))
 
 (taglink
-  text: (_) @markup.link)
+  text: (_) @markup.link.url)
 
 (optionlink
-  text: (_) @markup.link)
+  text: (_) @markup.link.url)
 
 (codespan
   "`" @markup.raw
