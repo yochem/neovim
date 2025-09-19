@@ -1,13 +1,13 @@
 -- use treesitter over syntax (for highlighted code blocks)
 vim.treesitter.start()
 
+color_ns = vim.api.nvim_create_namespace('nvim.vimhelp')
 --- Apply current colorscheme to lists of default highlight groups
 ---
 --- Note: {patterns} is assumed to be sorted by occurrence in the file.
 --- @param patterns {start:string,stop:string,match:string}[]
 local function colorize_hl_groups(patterns)
-  local ns = vim.api.nvim_create_namespace('nvim.vimhelp')
-  vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(0, color_ns, 0, -1)
 
   local save_cursor = vim.fn.getcurpos()
 
@@ -21,7 +21,7 @@ local function colorize_hl_groups(patterns)
     for lnum = start_lnum, end_lnum do
       local word = vim.api.nvim_buf_get_lines(0, lnum - 1, lnum, true)[1]:match(pat.match)
       if vim.fn.hlexists(word) ~= 0 then
-        vim.api.nvim_buf_set_extmark(0, ns, lnum - 1, 0, { end_col = #word, hl_group = word })
+        vim.api.nvim_buf_set_extmark(0, color_ns, lnum - 1, 0, { end_col = #word, hl_group = word })
       end
     end
   end
@@ -115,8 +115,8 @@ do
   end, { buffer = true })
 end
 
+local urls_ns = vim.api.nvim_create_namespace('nvim.help.urls')
 do
-  local ns = vim.api.nvim_create_namespace('nvim.help.urls')
   local base = 'https://neovim.io/doc/user/helptag.html?tag='
   local query = vim.treesitter.query.parse(
     'vimdoc',
@@ -135,7 +135,7 @@ do
         for _, node in ipairs(nodes) do
           local start_line, start_col, end_line, end_col = node:range()
           local tag = vim.treesitter.get_node_text(node, 0)
-          vim.api.nvim_buf_set_extmark(0, ns, start_line, start_col, {
+          vim.api.nvim_buf_set_extmark(0, urls_ns, start_line, start_col, {
             end_line = end_line,
             end_col = end_col,
             url = base .. vim.uri_encode(tag),
@@ -146,7 +146,17 @@ do
   end
 end
 
-vim.b.undo_ftplugin = (vim.b.undo_ftplugin or '')
-  .. '\n sil! exe "nunmap <buffer> gO" | sil! exe "nunmap <buffer> g=="'
-  .. '\n sil! exe "nunmap <buffer> ]]" | sil! exe "nunmap <buffer> [["'
-vim.b.undo_ftplugin = vim.b.undo_ftplugin .. ' | call v:lua.vim.treesitter.stop()'
+require('vim._ftplugin').undo_ftplugin(function()
+  vim.print('first')
+  vim.treesitter.stop()
+  vim.api.nvim_buf_clear_namespace(0, color_ns, 0, -1)
+  vim.keymap.del('n', 'gO', { buffer = 0 })
+  vim.keymap.del('n', '[[', { buffer = 0 })
+  vim.keymap.del('n', ']]', { buffer = 0 })
+  vim.keymap.del('n', 'g==', { buffer = 0 })
+  vim.api.nvim_buf_clear_namespace(0, urls_ns, 0, -1)
+end)
+
+require('vim._ftplugin').undo_ftplugin(function()
+  vim.print('2nd')
+end)
