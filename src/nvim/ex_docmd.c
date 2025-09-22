@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <lua.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -34,6 +35,7 @@
 #include "nvim/edit.h"
 #include "nvim/errors.h"
 #include "nvim/eval.h"
+#include "nvim/eval/executor.h"
 #include "nvim/eval/typval.h"
 #include "nvim/eval/typval_defs.h"
 #include "nvim/eval/userfunc.h"
@@ -7683,10 +7685,6 @@ void dialog_msg(char *buff, char *format, char *fname)
   vim_snprintf(buff, DIALOG_MSG_SIZE, format, fname);
 }
 
-static TriState filetype_detect = kNone;
-static TriState filetype_plugin = kNone;
-static TriState filetype_indent = kNone;
-
 /// ":filetype [plugin] [indent] {on,off,detect}"
 /// on: Load the filetype.vim file to install autocommands for file types.
 /// off: Load the ftoff.vim file to remove all autocommands for file types.
@@ -7696,67 +7694,17 @@ static TriState filetype_indent = kNone;
 /// indent off: load indoff.vim
 static void ex_filetype(exarg_T *eap)
 {
-  if (*eap->arg == NUL) {
-    // Print current status.
-    smsg(0, "filetype detection:%s  plugin:%s  indent:%s",
-         filetype_detect == kTrue ? "ON" : "OFF",
-         filetype_plugin == kTrue ? (filetype_detect == kTrue ? "ON" : "(on)") : "OFF",
-         filetype_indent == kTrue ? (filetype_detect == kTrue ? "ON" : "(on)") : "OFF");
-    return;
-  }
+  Object obj[1];
+  obj[0] = STRING_OBJ(cstr_to_string(eap->arg));
 
-  char *arg = eap->arg;
-  bool plugin = false;
-  bool indent = false;
+  Array args = ARRAY_DICT_INIT;
+  args.size = 1;
+  args.items = obj;
 
-  // Accept "plugin" and "indent" in any order.
-  while (true) {
-    if (strncmp(arg, "plugin", 6) == 0) {
-      plugin = true;
-      arg = skipwhite(arg + 6);
-      continue;
-    }
-    if (strncmp(arg, "indent", 6) == 0) {
-      indent = true;
-      arg = skipwhite(arg + 6);
-      continue;
-    }
-    break;
-  }
-  if (strcmp(arg, "on") == 0 || strcmp(arg, "detect") == 0) {
-    if (*arg == 'o' || filetype_detect != kTrue) {
-      source_runtime(FILETYPE_FILE, DIP_ALL);
-      filetype_detect = kTrue;
-      if (plugin) {
-        source_runtime(FTPLUGIN_FILE, DIP_ALL);
-        filetype_plugin = kTrue;
-      }
-      if (indent) {
-        source_runtime(INDENT_FILE, DIP_ALL);
-        filetype_indent = kTrue;
-      }
-    }
-    if (*arg == 'd') {
-      do_doautocmd("filetypedetect BufRead", true, NULL);
-      do_modelines(0);
-    }
-  } else if (strcmp(arg, "off") == 0) {
-    if (plugin || indent) {
-      if (plugin) {
-        source_runtime(FTPLUGOF_FILE, DIP_ALL);
-        filetype_plugin = kFalse;
-      }
-      if (indent) {
-        source_runtime(INDOFF_FILE, DIP_ALL);
-        filetype_indent = kFalse;
-      }
-    } else {
-      source_runtime(FTOFF_FILE, DIP_ALL);
-      filetype_detect = kFalse;
-    }
-  } else {
-    semsg(_(e_invarg2), arg);
-  }
+  Error err = ERROR_INIT;
+
+  NLUA_EXEC_STATIC("require('vim._ftplugin')._ex_filetype(...)",
+                   args, kRetNilBool, NULL, &err);
 }
 
 /// Source ftplugin.vim and indent.vim to create the necessary FileType
@@ -7765,26 +7713,23 @@ static void ex_filetype(exarg_T *eap)
 /// allowing general filetype detection to be disabled in the user's init file.
 void filetype_plugin_enable(void)
 {
-  if (filetype_plugin == kNone) {
-    source_runtime(FTPLUGIN_FILE, DIP_ALL);
-    filetype_plugin = kTrue;
-  }
-  if (filetype_indent == kNone) {
-    source_runtime(INDENT_FILE, DIP_ALL);
-    filetype_indent = kTrue;
-  }
+  Array args = ARRAY_DICT_INIT;
+  Error err = ERROR_INIT;
+
+  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_ftplugin()",
+                   args, kRetNilBool, NULL, &err);
+  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_indent()",
+                   args, kRetNilBool, NULL, &err);
 }
 
 /// Enable filetype detection if the user did not explicitly disable it.
 void filetype_maybe_enable(void)
 {
-  if (filetype_detect == kNone) {
-    // Normally .vim files are sourced before .lua files when both are
-    // supported, but we reverse the order here because we want the Lua
-    // autocommand to be defined first so that it runs first
-    source_runtime(FILETYPE_FILE, DIP_ALL);
-    filetype_detect = kTrue;
-  }
+  Array args = ARRAY_DICT_INIT;
+  Error err = ERROR_INIT;
+
+  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_filetype()",
+                   args, kRetNilBool, NULL, &err);
 }
 
 /// ":setfiletype [FALLBACK] {name}"

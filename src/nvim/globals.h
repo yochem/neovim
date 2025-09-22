@@ -24,37 +24,6 @@
 #define MSG_BUF_CLEN  (MSG_BUF_LEN / 6)  // cell length (worst case: utf-8
                                          // takes 6 bytes for one cell)
 
-// FILETYPE_FILE        used for file type detection
-// FTPLUGIN_FILE        used for loading filetype plugin files
-// INDENT_FILE          used for loading indent files
-// FTOFF_FILE           used for file type detection
-// FTPLUGOF_FILE        used for loading settings files
-// INDOFF_FILE          used for loading indent files
-
-#ifndef FILETYPE_FILE
-# define FILETYPE_FILE  "filetype.lua filetype.vim"
-#endif
-
-#ifndef FTPLUGIN_FILE
-# define FTPLUGIN_FILE  "ftplugin.vim"
-#endif
-
-#ifndef INDENT_FILE
-# define INDENT_FILE    "indent.vim"
-#endif
-
-#ifndef FTOFF_FILE
-# define FTOFF_FILE     "ftoff.vim"
-#endif
-
-#ifndef FTPLUGOF_FILE
-# define FTPLUGOF_FILE  "ftplugof.vim"
-#endif
-
-#ifndef INDOFF_FILE
-# define INDOFF_FILE    "indoff.vim"
-#endif
-
 #define DFLT_ERRORFILE  "errors.err"
 
 #ifndef SYS_VIMRC_FILE
