@@ -7718,6 +7718,9 @@ void filetype_plugin_enable(void)
 
   NLUA_EXEC_STATIC("require('vim._ftplugin').enable_ftplugin()",
                    args, kRetNilBool, NULL, &err);
+  if (ERROR_SET(&err)) {
+    smsg(0, "Found error: %s\n", err.msg);
+  }
   NLUA_EXEC_STATIC("require('vim._ftplugin').enable_indent()",
                    args, kRetNilBool, NULL, &err);
 }

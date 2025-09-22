@@ -40,6 +40,7 @@ end
 ---@param enable boolean? true/nil to enable, false to disable
 function M.enable_ftplugin(enable)
   enable = enable or enable == nil
+
   if enable then
     -- prevent re-sourcing, no need to update state
     if state.plugin then
@@ -100,8 +101,8 @@ local function show_state_overview()
   local d, p, i = state.detect, state.plugin, state.indent
   print(("filetype detection:%s  plugin:%s  indent:%s"):format(
     d and 'ON' or 'OFF',
-    p and (d and 'ON' or '(on)') or (d and 'OFF' or '(off)'),
-    i and (d and 'ON' or '(on)') or (d and 'OFF' or '(off)')
+    p and (d and 'ON' or '(on)') or 'OFF',
+    i and (d and 'ON' or '(on)') or 'OFF'
   ))
 end
 
@@ -145,3 +146,5 @@ function M._ex_filetype(cmd)
     vim.api.nvim_exec_autocmds('BufRead', { group = 'filetypedetect' })
   end
 end
+
+return M
