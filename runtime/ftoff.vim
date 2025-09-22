@@ -10,3 +10,5 @@ endif
 
 " Remove all autocommands in the filetypedetect group
 silent! au! filetypedetect *
+
+lua vim.deprecate(':runtime ftoff.vim', ':filetype off', '0.13')
