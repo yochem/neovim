@@ -26,7 +26,8 @@ local state = {
 
 local function runtime_doall(args)
   -- TODO(clason): use nvim__get_runtime when supports globs and modeline
-  vim.cmd.runtime({ args = args, bang = true })
+  local a = table.concat(args, ' ')
+  vim.cmd([[exe $'runtime! ]] .. a .. [[']])
 end
 
 ---Register ftplugin undo function for the current buffer.
@@ -100,28 +101,40 @@ local function enable_feature(enable, feature, pathfmt)
     })
   else
     vim.b[state[feature].plugin_var] = nil
-    vim.api.nvim_clear_autocmds({ group = augroup })
+    pcall(function ()
+      vim.api.nvim_clear_autocmds({ group = augroup })
+    end)
   end
 
   state[feature].enabled = enable
 end
 
 ---@param enable boolean? true/nil to enable, false to disable
-function M.enable_ftplugin(enable)
+function M.enable_ftplugin(enable, only_unset)
+  if only_unset and state.plugin.enabled ~= nil then
+    return
+  end
   enable_feature(enable, 'plugin', {
-    'ftplugin/%s[.]{vim,lua}',
-    'ftplugin/%s_*.{vim,lua}',
+    'ftplugin/%s[.]{{vim,lua}}',
+    'ftplugin/%s_*.{{vim,lua}}',
+    'ftplugin/%s/*.{{vim,lua}}',
   })
 end
 
 ---@param enable boolean? true/nil to enable, false to disable
-function M.enable_indent(enable)
-  enable_feature(enable, 'indent', { 'indent/%s[.]{vim,lua}' })
+function M.enable_indent(enable, only_unset)
+  if only_unset and state.indent.enabled ~= nil then
+    return
+  end
+  enable_feature(enable, 'indent', { 'indent/%s[.]{{vim,lua}}' })
 end
 
 ---Source $VIMRUNTIME/filetype.{lua,vim} if enabled, else remove filetypedetect autocmd
 ---@param enable boolean? true/nil to enable, false to disable
-function M.enable_filetype(enable)
+function M.enable_filetype(enable, only_unset)
+  if only_unset and state.detect.enabled ~= nil then
+    return
+  end
   enable = enable or enable == nil
 
   -- prevent re-sourcing, no need to update state
@@ -136,7 +149,9 @@ function M.enable_filetype(enable)
     runtime_doall({ 'filetype.lua', 'filetype.vim' })
   else
     vim.g.did_load_filetypes = nil
-    vim.api.nvim_clear_autocmds({ group = 'filetypedetect' })
+    pcall(function ()
+      vim.api.nvim_clear_autocmds({ group = 'filetypedetect' })
+    end)
   end
 
   state.detect.enabled = enable

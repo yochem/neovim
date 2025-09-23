@@ -7705,6 +7705,9 @@ static void ex_filetype(exarg_T *eap)
 
   NLUA_EXEC_STATIC("require('vim._ftplugin')._ex_filetype(...)",
                    args, kRetNilBool, NULL, &err);
+  if (ERROR_SET(&err)) {
+    emsg(err.msg);
+  }
 }
 
 /// Source ftplugin.vim and indent.vim to create the necessary FileType
@@ -7716,13 +7719,17 @@ void filetype_plugin_enable(void)
   Array args = ARRAY_DICT_INIT;
   Error err = ERROR_INIT;
 
-  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_ftplugin()",
+  // TODO(yochem): only if current state is None (unset)!
+  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_ftplugin(true, true)",
                    args, kRetNilBool, NULL, &err);
   if (ERROR_SET(&err)) {
-    smsg(0, "Found error: %s\n", err.msg);
+    emsg(err.msg);
   }
-  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_indent()",
+  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_indent(true, true)",
                    args, kRetNilBool, NULL, &err);
+  if (ERROR_SET(&err)) {
+    emsg(err.msg);
+  }
 }
 
 /// Enable filetype detection if the user did not explicitly disable it.
@@ -7731,7 +7738,7 @@ void filetype_maybe_enable(void)
   Array args = ARRAY_DICT_INIT;
   Error err = ERROR_INIT;
 
-  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_filetype()",
+  NLUA_EXEC_STATIC("require('vim._ftplugin').enable_filetype(true, true)",
                    args, kRetNilBool, NULL, &err);
 }
 
