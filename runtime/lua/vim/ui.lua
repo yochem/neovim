@@ -253,4 +253,94 @@ function M._get_urls()
   return urls
 end
 
+---@alias Tree string | table<string, Tree[]>
+
+-- TODO: easier to use tabs as indent and then set tabwidth?
+---@param tree Tree
+---@param indent integer Indentation width as number of spaces.
+---@param level integer? Current level of the tree.
+---@param lines string[]? Current lines of the representation.
+---@param meta table Metadata that is returned on select.
+---@return any
+---@return any
+local function make_tree(tree, indent, level, lines, meta)
+  indent = indent or 2
+  level = level or 0
+  lines = lines or {}
+  meta = meta or {}
+
+  for k, v in pairs(tree) do
+    local item = type(v) == 'table' and k or v
+    table.insert(lines, string.rep(' ', indent * level) .. tostring(item))
+    table.insert(meta, {
+      name = item,
+      line = #lines,
+      kind = type(v) == 'table' and 'tree' or 'leaf',
+      depth = level,
+      -- TODO: parents, full path, etc.
+    })
+
+    -- this tree has leafs, recurse
+    if type(v) == 'table' then
+      make_tree(v, indent, level + 1, lines, meta)
+    end
+  end
+  return lines, meta
+end
+
+local function test_on_select(item)
+  vim.print(item)
+end
+
+---@class vim.ui.tree.Opts
+---@inlinedoc
+---
+--- Buffer title. Defaults to 'Tree view'.
+---@field title string?
+---
+--- Indent size of the shown tree.
+---@field indent integer?
+---
+--- TODO: add this? maybe useful for a 'dirfirst' option?
+---@field sort fun()?
+---
+--- TODO: options for the new window
+---@field winopts fun()?
+
+---@param items Tree
+---@param opts table?
+---@param on_select fun(table)?
+---@return integer buf
+function M.tree(items, opts, on_select)
+  opts = opts or {}
+  opts.indent = opts.indent or 2
+  on_select = on_select or test_on_select
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buf, opts.title or 'Tree view')
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    vertical = true,
+    width = opts.width or 30,
+  })
+
+  vim.wo[win][0].foldmethod = 'expr'
+  vim.wo[win][0].foldexpr = 'TODO'
+  vim.wo[win][0].foldenable = true
+  vim.bo[buf].bufhidden = 'wipe'
+  vim.bo[buf].shiftwidth = opts.indent
+
+  local lines, metadata = make_tree(items, opts.indent)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+  vim.bo[buf].modifiable = false
+
+  vim.keymap.set('n', '<CR>', function()
+    local line, _ = unpack(vim.api.nvim_win_get_cursor(win))
+    on_select(metadata[line])
+  end, { buffer = buf, silent = true })
+
+  return buf
+end
+
 return M
