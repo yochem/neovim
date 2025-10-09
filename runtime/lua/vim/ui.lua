@@ -291,7 +291,13 @@ local function make_tree(tree, indent, level, lines, meta, parents)
     local p1 = vim.deepcopy(parents)
 
     table.insert(p1, itemstr)
-    table.insert(meta, { name = itemstr, type = itemtype, depth = level, path = p1 })
+    table.insert(meta, {
+      name = itemstr,
+      type = itemtype,
+      depth = level,
+      path = p1,
+      numchildren = issubtree and #v or -1
+    })
 
     -- value is a tree with leafs, recurse
     if issubtree then
@@ -314,6 +320,9 @@ local function expand_tree(buf, parent, indent, items)
     vim.api.nvim_buf_set_lines(buf, parent.line, parent.line + 1, true, subtree)
   end)
 
+  -- set children count
+  tree_data[buf][parent.line].numchildren = #subtree
+
   -- remove placeholder
   table.remove(tree_data[buf], parent.line + 1)
 
@@ -321,6 +330,17 @@ local function expand_tree(buf, parent, indent, items)
   for i = #subtree, 1, -1 do
     table.insert(tree_data[buf], parent.line + 1, meta[i])
   end
+end
+
+function M._tree_foldexpr(lnum)
+  local indent = vim.fn.indent(lnum) / vim.o.shiftwidth
+  local next_indent = vim.fn.indent(lnum+1) / vim.o.shiftwidth
+  if next_indent > indent then
+    return '>' .. next_indent
+  elseif next_indent < indent then
+    return '<' .. indent
+  end
+  return -1
 end
 
 ---@class vim.ui.tree.Opts
@@ -335,41 +355,41 @@ end
 --- Indent size of the shown tree.
 ---@field indent integer?
 ---
---- TODO: add this? maybe useful for a 'dirfirst' option?
----@field sort fun()?
+---Vimscript wincmd to open new window. Default: 30vnew
+---@field wincmd string?
 ---
---- TODO: options for the new window
----@field winopts fun()?
+---@field on_expand fun(Metadata)?
 ---
----@field on_expand fun()?
+---@field on_select fun(Metadata)?
 
 ---@param items Tree
----@param opts table?
----@param on_select fun(table)?
+---@param opts vim.ui.tree.Opts
 ---@return integer buf
 ---@return fun(): table
-function M.tree(items, opts, on_select)
+function M.tree(items, opts)
   opts = opts or {}
   opts.indent = opts.indent or 2
 
   local buf = opts.buf
   if not buf or not vim.api.nvim_buf_is_loaded(buf) then
     buf = vim.api.nvim_create_buf(false, true)
-    local win = vim.api.nvim_open_win(buf, true, {
-      vertical = true,
-      width = opts.width or 30,
-    })
-
-    vim.wo[win][0].foldmethod = 'expr'
-    vim.wo[win][0].foldexpr = 'TODO'
-    vim.wo[win][0].foldenable = true
-    vim.bo[buf].bufhidden = 'wipe'
+    vim.cmd(opts.wincmd or '30vnew')
     vim.bo[buf].shiftwidth = opts.indent
     vim.bo[buf].filetype = 'nvim-tree'
     vim.bo[buf].modifiable = false
+    vim.bo[buf].bufhidden = 'wipe'
+    vim.bo[buf].buflisted = false
+    vim.bo[buf].buftype = 'nofile'
+    vim.bo[buf].swapfile = false
   end
 
   local win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(win, buf)
+  vim.wo[win][0].foldmethod = 'expr'
+  vim.wo[win][0].foldexpr = 'v:lua.vim.ui._tree_foldexpr(v:lnum)'
+  vim.wo[win][0].foldenable = true
+  vim.wo[win][0].foldlevel = 0
+
   vim.api.nvim_buf_set_name(buf, opts.title or 'Tree view')
 
   local lines, metadata = make_tree(items, opts.indent)
@@ -378,30 +398,43 @@ function M.tree(items, opts, on_select)
   end)
   tree_data[buf] = metadata
 
-
+  ---Returns data of the current tree item.
+  ---@return Metadata
   local function get_current()
     local line, _ = unpack(vim.api.nvim_win_get_cursor(win))
-    -- keep linenr
+    -- save linenr
     tree_data[buf][line].line = line
-    return metadata[line]
+    return tree_data[buf][line]
   end
 
   -- default binding to 'select' an item
   vim.keymap.set('n', '<CR>', function()
-    if vim.is_callable(on_select) then
-      on_select(get_current())
+    if vim.is_callable(opts.on_select) then
+      opts.on_select(get_current())
     end
   end, { buffer = buf, silent = true })
 
-  vim.keymap.set('n', 'zo', function()
+  -- TODO: better way to hijack folding
+  local function open_dynamic_fold(cmd)
     if vim.is_callable(opts.on_expand) then
       local current = get_current()
       if current.type == 'tree' then
-        local new_items = opts.on_expand(current)
-        vim.print(current)
-        expand_tree(buf, current, opts.indent, new_items)
+        if current.numchildren == 0 then
+          local new_items = opts.on_expand(current)
+          expand_tree(buf, current, opts.indent, new_items)
+        end
+        vim.cmd('norm! ' .. cmd)
       end
     end
+  end
+  vim.keymap.set('n', 'zo', function()
+    open_dynamic_fold('zo')
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'za', function()
+    open_dynamic_fold('za')
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'zR', function()
+    print('vim.ui.tree currently does not support opening folds recursively')
   end, { buffer = buf, silent = true })
 
   return buf, get_current
