@@ -50,7 +50,7 @@ function M.select(items, opts, on_choice)
   local choices = { opts.prompt or 'Select one of:' }
   local format_item = opts.format_item or tostring
   for i, item in
-    ipairs(items --[[@as any[] ]])
+  ipairs(items --[[@as any[] ]])
   do
     table.insert(choices, string.format('%d: %s', i, format_item(item)))
   end
@@ -227,10 +227,10 @@ function M._get_urls()
               local url = metadata[id] and metadata[id].url
               if url and match[url] then
                 for _, n in
-                  ipairs(match[url] --[[@as TSNode[] ]])
+                ipairs(match[url] --[[@as TSNode[] ]])
                 do
                   urls[#urls + 1] =
-                    vim.treesitter.get_node_text(n, bufnr, { metadata = metadata[url] })
+                      vim.treesitter.get_node_text(n, bufnr, { metadata = metadata[url] })
                 end
               end
             end
@@ -278,24 +278,28 @@ local function make_tree(tree, indent, level, lines, meta, parents)
 
   for k, v in pairs(tree) do
     local issubtree = type(v) == 'table'
-    local item = tostring(issubtree and k or v)
-    table.insert(lines, string.rep(' ', indent * level) .. item)
+    local item = issubtree and k or v
+    local itemstr = tostring(item)
+    local itemtype = issubtree and 'tree' or 'leaf'
+    if item == vim.NIL then
+      itemstr = '<Empty or placeholder>'
+      itemtype = 'placeholder'
+    end
+    table.insert(lines, string.rep(' ', indent * level) .. itemstr)
 
     -- TODO: this is ugly and repeated
     local p1 = vim.deepcopy(parents)
-    table.insert(p1, item)
 
-    table.insert(meta, {
-      name = item,
-      type = issubtree and 'tree' or 'leaf',
-      depth = level,
-      path = p1,
-    })
+    table.insert(p1, itemstr)
+    table.insert(meta, { name = itemstr, type = itemtype, depth = level, path = p1 })
 
     -- value is a tree with leafs, recurse
     if issubtree then
       local p = vim.deepcopy(parents)
       table.insert(p, k)
+      if #v == 0 then
+        v = { vim.NIL }
+      end
       make_tree(v --[[@as Tree]], indent, level + 1, lines, meta, p)
     end
   end
@@ -306,21 +310,24 @@ end
 
 local function expand_tree(buf, parent, indent, items)
   local subtree, meta = make_tree(items, indent, parent.depth + 1, nil, nil, parent.path)
-  vim._with({ buf = buf, bo = { modifiable = true } }, function ()
+  vim._with({ buf = buf, bo = { modifiable = true } }, function()
     vim.api.nvim_buf_set_lines(buf, parent.line, parent.line + 1, true, subtree)
-
-    -- remove placeholder
-    table.remove(tree_data[buf], parent.line + 1)
-
-    -- insert new lines in metadata table
-    for i = #subtree, 1, -1 do
-      table.insert(tree_data[buf], parent.line + 1, meta[i])
-    end
   end)
+
+  -- remove placeholder
+  table.remove(tree_data[buf], parent.line + 1)
+
+  -- insert new lines in metadata table
+  for i = #subtree, 1, -1 do
+    table.insert(tree_data[buf], parent.line + 1, meta[i])
+  end
 end
 
 ---@class vim.ui.tree.Opts
 ---@inlinedoc
+---
+--- Reuse buffer buf.
+---@field buf integer?
 ---
 --- Buffer title. Defaults to 'Tree view'.
 ---@field title string?
@@ -345,26 +352,32 @@ function M.tree(items, opts, on_select)
   opts = opts or {}
   opts.indent = opts.indent or 2
 
-  local buf = vim.api.nvim_create_buf(false, true)
+  local buf = opts.buf
+  if not buf or not vim.api.nvim_buf_is_loaded(buf) then
+    buf = vim.api.nvim_create_buf(false, true)
+    local win = vim.api.nvim_open_win(buf, true, {
+      vertical = true,
+      width = opts.width or 30,
+    })
+
+    vim.wo[win][0].foldmethod = 'expr'
+    vim.wo[win][0].foldexpr = 'TODO'
+    vim.wo[win][0].foldenable = true
+    vim.bo[buf].bufhidden = 'wipe'
+    vim.bo[buf].shiftwidth = opts.indent
+    vim.bo[buf].filetype = 'nvim-tree'
+    vim.bo[buf].modifiable = false
+  end
+
+  local win = vim.api.nvim_get_current_win()
   vim.api.nvim_buf_set_name(buf, opts.title or 'Tree view')
 
-  local win = vim.api.nvim_open_win(buf, true, {
-    vertical = true,
-    width = opts.width or 30,
-  })
-
-  vim.wo[win][0].foldmethod = 'expr'
-  vim.wo[win][0].foldexpr = 'TODO'
-  vim.wo[win][0].foldenable = true
-  vim.bo[buf].bufhidden = 'wipe'
-  vim.bo[buf].shiftwidth = opts.indent
-  vim.bo[buf].filetype = 'nvim-tree'
-
   local lines, metadata = make_tree(items, opts.indent)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim._with({ buf = buf, bo = { modifiable = true } }, function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  end)
   tree_data[buf] = metadata
 
-  vim.bo[buf].modifiable = false
 
   local function get_current()
     local line, _ = unpack(vim.api.nvim_win_get_cursor(win))
