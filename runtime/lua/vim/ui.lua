@@ -14,7 +14,7 @@ local M = {}
 --- Plugins reimplementing `vim.ui.select` may wish to
 --- use this to infer the structure or semantics of
 --- `items`, or the context in which select() was called.
----@field kind? string
+---@field type? string
 
 --- Prompts the user to pick from a list of items, allowing arbitrary (potentially asynchronous)
 --- work until `on_choice`.
@@ -253,43 +253,70 @@ function M._get_urls()
   return urls
 end
 
----@alias Tree string | table<string, Tree[]>
+---@alias Tree (string | table<string, Tree>)[]
+---@alias Metadata table -- TODO: make class
+
+---tree_data[buf][line] = Metadata
+---@type table<integer, table<integer, Metadata>>
+local tree_data = {}
 
 -- TODO: easier to use tabs as indent and then set tabwidth?
 ---@param tree Tree
 ---@param indent integer Indentation width as number of spaces.
 ---@param level integer? Current level of the tree.
 ---@param lines string[]? Current lines of the representation.
----@param meta table Metadata that is returned on select.
----@return any
----@return any
-local function make_tree(tree, indent, level, lines, meta)
+---@param meta table? Metadata for the new lines.
+---@param parents string[]? List of parents of the current subtree.
+---@return string[]
+---@return table
+local function make_tree(tree, indent, level, lines, meta, parents)
   indent = indent or 2
   level = level or 0
   lines = lines or {}
   meta = meta or {}
+  parents = parents or {}
 
   for k, v in pairs(tree) do
-    local item = type(v) == 'table' and k or v
-    table.insert(lines, string.rep(' ', indent * level) .. tostring(item))
+    local issubtree = type(v) == 'table'
+    local item = tostring(issubtree and k or v)
+    table.insert(lines, string.rep(' ', indent * level) .. item)
+
+    -- TODO: this is ugly and repeated
+    local p1 = vim.deepcopy(parents)
+    table.insert(p1, item)
+
     table.insert(meta, {
       name = item,
-      line = #lines,
-      kind = type(v) == 'table' and 'tree' or 'leaf',
+      type = issubtree and 'tree' or 'leaf',
       depth = level,
-      -- TODO: parents, full path, etc.
+      path = p1,
     })
 
-    -- this tree has leafs, recurse
-    if type(v) == 'table' then
-      make_tree(v, indent, level + 1, lines, meta)
+    -- value is a tree with leafs, recurse
+    if issubtree then
+      local p = vim.deepcopy(parents)
+      table.insert(p, k)
+      make_tree(v --[[@as Tree]], indent, level + 1, lines, meta, p)
     end
   end
+
   return lines, meta
 end
 
-local function test_on_select(item)
-  vim.print(item)
+
+local function expand_tree(buf, parent, indent, items)
+  local subtree, meta = make_tree(items, indent, parent.depth + 1, nil, nil, parent.path)
+  vim._with({ buf = buf, bo = { modifiable = true } }, function ()
+    vim.api.nvim_buf_set_lines(buf, parent.line, parent.line + 1, true, subtree)
+
+    -- remove placeholder
+    table.remove(tree_data[buf], parent.line + 1)
+
+    -- insert new lines in metadata table
+    for i = #subtree, 1, -1 do
+      table.insert(tree_data[buf], parent.line + 1, meta[i])
+    end
+  end)
 end
 
 ---@class vim.ui.tree.Opts
@@ -306,15 +333,17 @@ end
 ---
 --- TODO: options for the new window
 ---@field winopts fun()?
+---
+---@field on_expand fun()?
 
 ---@param items Tree
 ---@param opts table?
 ---@param on_select fun(table)?
 ---@return integer buf
+---@return fun(): table
 function M.tree(items, opts, on_select)
   opts = opts or {}
   opts.indent = opts.indent or 2
-  on_select = on_select or test_on_select
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(buf, opts.title or 'Tree view')
@@ -329,18 +358,40 @@ function M.tree(items, opts, on_select)
   vim.wo[win][0].foldenable = true
   vim.bo[buf].bufhidden = 'wipe'
   vim.bo[buf].shiftwidth = opts.indent
+  vim.bo[buf].filetype = 'nvim-tree'
 
   local lines, metadata = make_tree(items, opts.indent)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  tree_data[buf] = metadata
 
   vim.bo[buf].modifiable = false
 
-  vim.keymap.set('n', '<CR>', function()
+  local function get_current()
     local line, _ = unpack(vim.api.nvim_win_get_cursor(win))
-    on_select(metadata[line])
+    -- keep linenr
+    tree_data[buf][line].line = line
+    return metadata[line]
+  end
+
+  -- default binding to 'select' an item
+  vim.keymap.set('n', '<CR>', function()
+    if vim.is_callable(on_select) then
+      on_select(get_current())
+    end
   end, { buffer = buf, silent = true })
 
-  return buf
+  vim.keymap.set('n', 'zo', function()
+    if vim.is_callable(opts.on_expand) then
+      local current = get_current()
+      if current.type == 'tree' then
+        local new_items = opts.on_expand(current)
+        vim.print(current)
+        expand_tree(buf, current, opts.indent, new_items)
+      end
+    end
+  end, { buffer = buf, silent = true })
+
+  return buf, get_current
 end
 
 return M
