@@ -256,78 +256,77 @@ end
 ---@alias Tree (string | table<string, Tree>)[]
 ---@alias TreeNode table -- TODO: make class
 
----tree_data[buf][line] = Metadata
----@type table<integer, table<integer, TreeNode>>
-local tree_data = {}
+--- The tree as provided per buffer
+--- ```
+--- trees = {
+---   42 = {
+---     tree = <tree as lua table>,
+---     paths = {
+---       { 'a' }, -- line 1
+---       { 'a', 'b' }, -- line 2
+---   }
+--- }
+--- ```
+--- @type table<integer, { tree: Tree, index: string[][] }>
+local trees = {}
 
 -- TODO: easier to use tabs as indent and then set tabwidth?
----@param tree Tree
+---@param tree Tree a mixed table of either strings or strings mapped to a sub table.
 ---@param indent integer Indentation width as number of spaces.
----@param level? integer Current level of the tree.
+---@param depth? integer Current level of the tree.
 ---@param lines? string[] Current lines of the representation.
----@param meta? table Metadata for the new lines.
 ---@param parents? string[] List of parents of the current subtree.
 ---@return string[]
 ---@return table
-local function make_tree(tree, indent, level, lines, meta, parents)
+local function make_tree(tree, indent, depth, lines, index, parents)
   indent = indent or 2
-  level = level or 0
+  depth = depth or 0
   lines = lines or {}
-  meta = meta or {}
-  parents = parents or {}
+  index = index or {}
+  parents = vim.deepcopy(parents or {})
+
+  if #tree == 0 then
+    tree = { '<Empty>' }
+  end
 
   for k, v in pairs(tree) do
-    local issubtree = type(v) == 'table'
-    local item = issubtree and k or v
+    local has_subtree = type(v) == 'table'
+    local item = has_subtree and k or v
     local itemstr = tostring(item)
-    local itemtype = issubtree and 'tree' or 'leaf'
     if item == vim.NIL then
-      itemstr = '<Empty or placeholder>'
-      itemtype = 'placeholder'
+      itemstr = '<Dynamic>'
     end
-    table.insert(lines, string.rep(' ', indent * level) .. itemstr)
+    table.insert(lines, string.rep(' ', indent * depth) .. itemstr)
 
-    -- TODO: this is ugly and repeated
-    local p1 = vim.deepcopy(parents)
+    local node_parents = vim.deepcopy(parents)
+    table.insert(node_parents, item)
+    table.insert(index, node_parents)
 
-    table.insert(p1, itemstr)
-    table.insert(meta, {
-      name = itemstr,
-      type = itemtype,
-      depth = level,
-      path = p1,
-      numchildren = issubtree and #v or -1,
-    })
-
-    -- value is a tree with leafs, recurse
-    if issubtree then
-      local p = vim.deepcopy(parents)
-      table.insert(p, k)
-      if #v == 0 then
-        v = { vim.NIL }
-      end
-      make_tree(v --[[@as Tree]], indent, level + 1, lines, meta, p)
+    if has_subtree then
+      make_tree(v --[[@as Tree]], indent, depth + 1, lines, index, node_parents)
     end
   end
 
-  return lines, meta
+  return lines, index
 end
 
-local function expand_tree(buf, parent, indent, items)
-  local subtree, meta = make_tree(items, indent, parent.depth + 1, nil, nil, parent.path)
+local function open_dynamic_tree(buf, parent, indent, items)
+  local lines, index = make_tree(items, indent, parent.depth + 1, nil, nil, parent.path)
   vim._with({ buf = buf, bo = { modifiable = true } }, function()
-    vim.api.nvim_buf_set_lines(buf, parent.line, parent.line + 1, true, subtree)
+    vim.api.nvim_buf_set_lines(buf, parent.line, parent.line + 1, true, lines)
   end)
 
-  -- set children count
-  tree_data[buf][parent.line].numchildren = #subtree
+  -- update the actual tree (the Lua table representation)
+  local parent_node = vim.tbl_get(trees[buf].tree, unpack(parent.path))
+  parent_node[1] = nil
+  for k, node in pairs(items) do
+    parent_node[k] = node
+  end
 
-  -- remove placeholder
-  table.remove(tree_data[buf], parent.line + 1)
-
-  -- insert new lines in metadata table
-  for i = #subtree, 1, -1 do
-    table.insert(tree_data[buf], parent.line + 1, meta[i])
+  -- Update the { line: node } index
+  table.remove(trees[buf].index, parent.line + 1)
+  for i = #index, 1, -1 do
+    table.insert(trees[buf].index, parent.line + 1, index[i])
   end
 end
 
@@ -342,10 +341,30 @@ function M._tree_foldexpr(lnum)
   return -1
 end
 
+---@param line integer linenr of current node
+---@param tree Tree
+---@param index string[][]
+---@return TreeNode
+local function linenr_to_node(line, tree, index)
+  local path = index[line]
+  local subtree = vim.tbl_get(tree, unpack(path))
+  local istree = subtree ~= nil
+  local dynamic = istree and subtree[1] == vim.NIL
+  return {
+    name = tostring(path[#path]),
+    line = line,
+    path = vim.deepcopy(path),
+    depth = #path - 1,
+    kind = istree and 'tree' or 'leaf',
+    children = (istree and not dynamic) and subtree or nil,
+    has_dynamic_subtree = dynamic,
+  }
+end
+
 ---@class vim.ui.tree.Opts
 ---@inlinedoc
 ---
---- Reuse buffer buf.
+--- Reuse buffer buf. Useful for updating the entire tree.
 ---@field buf? integer
 ---
 --- Buffer title. Defaults to 'Tree view'.
@@ -354,12 +373,16 @@ end
 --- Indent size of the shown tree.
 ---@field indent? integer
 ---
----Vimscript wincmd to open new window. Default: 30vnew
+---Vimscript command to open new window. Default: `30vnew`.
 ---@field wincmd? string
 ---
----@field on_expand? fun(Metadata)
+---Function that receives the node of which the subtree will be opened. It
+---should return the new sub tree, which will be the new children of `node`.
+---@field on_expand? fun(node: TreeNode): Tree
 ---
----@field on_select? fun(Metadata)
+---Function receiving the selected node. The default keymap is `<CR>` in normal
+---mode to select a node. See examples for mapping other keys to select a node.
+---@field on_select? fun(node: TreeNode)
 
 ---@param items Tree
 ---@param opts? vim.ui.tree.Opts
@@ -373,14 +396,14 @@ function M.tree(items, opts)
   if not buf or not vim.api.nvim_buf_is_loaded(buf) then
     buf = vim.api.nvim_create_buf(false, true)
     vim.cmd(opts.wincmd or '30vnew')
-    vim.bo[buf].shiftwidth = opts.indent
-    vim.bo[buf].filetype = 'nvim-tree'
-    vim.bo[buf].modifiable = false
-    vim.bo[buf].bufhidden = 'wipe'
-    vim.bo[buf].buflisted = false
-    vim.bo[buf].buftype = 'nofile'
-    vim.bo[buf].swapfile = false
   end
+  vim.bo[buf].shiftwidth = opts.indent
+  vim.bo[buf].filetype = 'nvim-tree'
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].bufhidden = 'wipe'
+  vim.bo[buf].buflisted = false
+  vim.bo[buf].buftype = 'nofile'
+  vim.bo[buf].swapfile = false
 
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)
@@ -391,19 +414,20 @@ function M.tree(items, opts)
 
   vim.api.nvim_buf_set_name(buf, opts.title or 'Tree view')
 
-  local lines, metadata = make_tree(items, opts.indent)
+  local lines, index = make_tree(items, opts.indent)
   vim._with({ buf = buf, bo = { modifiable = true } }, function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   end)
-  tree_data[buf] = metadata
+  trees[buf] = {
+    tree = vim.deepcopy(items),
+    index = index
+  }
 
   ---Returns data of the current tree item.
   ---@return TreeNode
   local function current_node()
     local line, _ = unpack(vim.api.nvim_win_get_cursor(win))
-    -- save linenr
-    tree_data[buf][line].line = line
-    return tree_data[buf][line]
+    return linenr_to_node(line, trees[buf].tree, trees[buf].index)
   end
 
   -- default binding to 'select' an item
@@ -413,28 +437,27 @@ function M.tree(items, opts)
     end
   end, { buffer = buf, silent = true })
 
-  -- TODO: better way to hijack folding
-  local function open_dynamic_fold(cmd)
-    if vim.is_callable(opts.on_expand) then
+  -- hijack folding to dynamically expand folded subtrees
+  if vim.is_callable(opts.on_expand) then
+    local function expand_current()
       local current = current_node()
-      if current.type == 'tree' then
-        if current.numchildren == 0 then
-          local new_items = opts.on_expand(current)
-          expand_tree(buf, current, opts.indent, new_items)
-        end
+      if current.has_dynamic_subtree then
+        local new_items = opts.on_expand(current)
+        open_dynamic_tree(buf, current, opts.indent, new_items)
       end
     end
-    vim.cmd('norm! ' .. cmd)
+    vim.keymap.set('n', 'zo', function()
+      expand_current()
+      vim.cmd('norm! zo')
+    end, { buffer = buf, silent = true })
+    vim.keymap.set('n', 'za', function()
+      expand_current()
+      vim.cmd('norm! za')
+    end, { buffer = buf, silent = true })
+    vim.keymap.set('n', 'zR', function()
+      print('vim.ui.tree currently does not support opening folds recursively')
+    end, { buffer = buf, silent = true })
   end
-  vim.keymap.set('n', 'zo', function()
-    open_dynamic_fold('zo')
-  end, { buffer = buf, silent = true })
-  vim.keymap.set('n', 'za', function()
-    open_dynamic_fold('za')
-  end, { buffer = buf, silent = true })
-  vim.keymap.set('n', 'zR', function()
-    print('vim.ui.tree currently does not support opening folds recursively')
-  end, { buffer = buf, silent = true })
 
   return buf, current_node
 end
