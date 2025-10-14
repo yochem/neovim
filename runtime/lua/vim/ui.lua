@@ -50,7 +50,7 @@ function M.select(items, opts, on_choice)
   local choices = { opts.prompt or 'Select one of:' }
   local format_item = opts.format_item or tostring
   for i, item in
-  ipairs(items --[[@as any[] ]])
+    ipairs(items --[[@as any[] ]])
   do
     table.insert(choices, string.format('%d: %s', i, format_item(item)))
   end
@@ -227,10 +227,10 @@ function M._get_urls()
               local url = metadata[id] and metadata[id].url
               if url and match[url] then
                 for _, n in
-                ipairs(match[url] --[[@as TSNode[] ]])
+                  ipairs(match[url] --[[@as TSNode[] ]])
                 do
                   urls[#urls + 1] =
-                      vim.treesitter.get_node_text(n, bufnr, { metadata = metadata[url] })
+                    vim.treesitter.get_node_text(n, bufnr, { metadata = metadata[url] })
                 end
               end
             end
@@ -254,19 +254,19 @@ function M._get_urls()
 end
 
 ---@alias Tree (string | table<string, Tree>)[]
----@alias Metadata table -- TODO: make class
+---@alias TreeNode table -- TODO: make class
 
 ---tree_data[buf][line] = Metadata
----@type table<integer, table<integer, Metadata>>
+---@type table<integer, table<integer, TreeNode>>
 local tree_data = {}
 
 -- TODO: easier to use tabs as indent and then set tabwidth?
 ---@param tree Tree
 ---@param indent integer Indentation width as number of spaces.
----@param level integer? Current level of the tree.
----@param lines string[]? Current lines of the representation.
----@param meta table? Metadata for the new lines.
----@param parents string[]? List of parents of the current subtree.
+---@param level? integer Current level of the tree.
+---@param lines? string[] Current lines of the representation.
+---@param meta? table Metadata for the new lines.
+---@param parents? string[] List of parents of the current subtree.
 ---@return string[]
 ---@return table
 local function make_tree(tree, indent, level, lines, meta, parents)
@@ -296,7 +296,7 @@ local function make_tree(tree, indent, level, lines, meta, parents)
       type = itemtype,
       depth = level,
       path = p1,
-      numchildren = issubtree and #v or -1
+      numchildren = issubtree and #v or -1,
     })
 
     -- value is a tree with leafs, recurse
@@ -312,7 +312,6 @@ local function make_tree(tree, indent, level, lines, meta, parents)
 
   return lines, meta
 end
-
 
 local function expand_tree(buf, parent, indent, items)
   local subtree, meta = make_tree(items, indent, parent.depth + 1, nil, nil, parent.path)
@@ -334,7 +333,7 @@ end
 
 function M._tree_foldexpr(lnum)
   local indent = vim.fn.indent(lnum) / vim.o.shiftwidth
-  local next_indent = vim.fn.indent(lnum+1) / vim.o.shiftwidth
+  local next_indent = vim.fn.indent(lnum + 1) / vim.o.shiftwidth
   if next_indent > indent then
     return '>' .. next_indent
   elseif next_indent < indent then
@@ -347,23 +346,23 @@ end
 ---@inlinedoc
 ---
 --- Reuse buffer buf.
----@field buf integer?
+---@field buf? integer
 ---
 --- Buffer title. Defaults to 'Tree view'.
----@field title string?
+---@field title? string
 ---
 --- Indent size of the shown tree.
----@field indent integer?
+---@field indent? integer
 ---
 ---Vimscript wincmd to open new window. Default: 30vnew
----@field wincmd string?
+---@field wincmd? string
 ---
----@field on_expand fun(Metadata)?
+---@field on_expand? fun(Metadata)
 ---
----@field on_select fun(Metadata)?
+---@field on_select? fun(Metadata)
 
 ---@param items Tree
----@param opts vim.ui.tree.Opts
+---@param opts? vim.ui.tree.Opts
 ---@return integer buf
 ---@return fun(): table
 function M.tree(items, opts)
@@ -399,8 +398,8 @@ function M.tree(items, opts)
   tree_data[buf] = metadata
 
   ---Returns data of the current tree item.
-  ---@return Metadata
-  local function get_current()
+  ---@return TreeNode
+  local function current_node()
     local line, _ = unpack(vim.api.nvim_win_get_cursor(win))
     -- save linenr
     tree_data[buf][line].line = line
@@ -410,22 +409,22 @@ function M.tree(items, opts)
   -- default binding to 'select' an item
   vim.keymap.set('n', '<CR>', function()
     if vim.is_callable(opts.on_select) then
-      opts.on_select(get_current())
+      opts.on_select(current_node())
     end
   end, { buffer = buf, silent = true })
 
   -- TODO: better way to hijack folding
   local function open_dynamic_fold(cmd)
     if vim.is_callable(opts.on_expand) then
-      local current = get_current()
+      local current = current_node()
       if current.type == 'tree' then
         if current.numchildren == 0 then
           local new_items = opts.on_expand(current)
           expand_tree(buf, current, opts.indent, new_items)
         end
-        vim.cmd('norm! ' .. cmd)
       end
     end
+    vim.cmd('norm! ' .. cmd)
   end
   vim.keymap.set('n', 'zo', function()
     open_dynamic_fold('zo')
@@ -437,7 +436,7 @@ function M.tree(items, opts)
     print('vim.ui.tree currently does not support opening folds recursively')
   end, { buffer = buf, silent = true })
 
-  return buf, get_current
+  return buf, current_node
 end
 
 return M
