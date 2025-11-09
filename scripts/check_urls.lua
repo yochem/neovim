@@ -7,6 +7,11 @@
 --
 -- [DIR...] defaults to all 'doc' directories in the runtimepath.
 
+-- these files are not checked for urls
+local ignore = {
+  ['credits.txt'] = true,
+}
+
 local ts = vim.treesitter
 
 local query = ts.query.parse('vimdoc', '(url) @url')
@@ -29,7 +34,8 @@ local function extract_urls(helpfile)
   ---@type string[]
   local urls = {}
   local source = read_file(helpfile)
-  local tree = ts.get_string_parser(source, 'vimdoc'):parse()[1]
+  local parser = ts.get_string_parser(source, 'vimdoc')
+  local tree = parser:parse()[1]
 
   for id, node in query:iter_captures(tree:root(), source) do
     if query.captures[id] == 'url' then
@@ -41,6 +47,7 @@ local function extract_urls(helpfile)
       urls[#urls + 1] = url
     end
   end
+  parser:destroy()
 
   return urls
 end
@@ -57,36 +64,41 @@ local function run()
     vim.list_extend(
       help_files,
       vim.fs.find(function(name, _)
-        return vim.endswith(name, '.txt')
+        local basename = vim.fs.basename(name)
+        return vim.endswith(name, '.txt') and not ignore[basename]
       end, { path = dir, type = 'file', limit = math.huge })
     )
   end
 
-  ---@type table<string, string[]>
-  local all_urls = {}
-  local requests = 0
   for _, file in ipairs(help_files) do
     local urls = extract_urls(file)
-    requests = requests + #urls
-    all_urls[file] = urls
-  end
+    local pending = 0
 
-  for file, file_urls in pairs(all_urls) do
-    for _, url in ipairs(file_urls) do
+    vim.print(('- Checking file %s (%d URLs)'):format(file, #urls))
+
+    for _, url in ipairs(urls) do
+      -- have max 30 requests pending. Prevents system running out of
+      -- file handles (EMFILE error)
+      if pending > 30 then
+        vim.wait(5000, function()
+          return pending <= 10
+        end)
+      end
+      pending = pending + 1
       vim.net.request(url, { retry = 3 }, function(err, _)
         if err then
-          vim.print(('Unreachable url %s in %s'):format(url, file))
+          vim.print(('  - Unreachable URL: %s'):format(url, file))
         end
-        requests = requests - 1
-        if requests <= 0 then
-          vim.uv.stop()
-        end
+        pending = pending - 1
       end)
     end
+    vim.wait(20000, function()
+      return pending <= 0
+    end)
+    if pending > 0 then
+      vim.print('Warning: timeout on ' .. file)
+    end
   end
-
-  -- wait for all pending async requests to finish (by calling vim.uv.stop())
-  vim.uv.run()
 end
 
 run()
