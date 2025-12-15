@@ -1,5 +1,6 @@
 // help.c: functions for Vim help
 
+#include <lua.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -841,4 +842,7 @@ void ex_helptags(exarg_T *eap)
   Error err = ERROR_INIT;
   NLUA_EXEC_STATIC("require('vim._core.help').gen_tags(...)", args,
                    kRetNilBool, NULL, &err);
+  if (ERROR_SET(&err)) {
+    emsg(err.msg);
+  }
 }
