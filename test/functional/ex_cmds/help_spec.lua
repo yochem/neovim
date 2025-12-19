@@ -99,7 +99,8 @@ describe(':helptags', function()
     local msg = t.pcall_err(command, 'helptags Xhelptags/doc')
     eq(true, msg:find('E154') ~= nil)
 
-    eq(0, eval("filereadable('Xhelptags/doc/tags')"))
+    -- tags file should still be generated
+    eq(1, eval("filereadable('Xhelptags/doc/tags')"))
 
     os.remove('Xhelptags/doc/Xd.txt')
 
@@ -109,7 +110,7 @@ describe(':helptags', function()
     msg = t.pcall_err(command, 'helptags Xhelptags/doc')
     eq(true, msg:find('E154') ~= nil)
 
-    eq(0, eval("filereadable('Xhelptags/doc/tags')"))
+    eq(1, eval("filereadable('Xhelptags/doc/tags')"))
   end)
 
   it('works with translated help files', function()

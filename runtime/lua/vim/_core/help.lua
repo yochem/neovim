@@ -47,23 +47,18 @@ local function gen_tagsfile(helpfiles, outpath, include_helptags_tag)
   end)
 
   -- (3) check duplicates
-  do
-    local prevtag, prevfn, has_duplicates = '', '', false
-    for _, tagline in ipairs(tags) do
-      local curtag, curfn, _ = unpack(tagline)
-      if curtag == prevtag then
-        has_duplicates = true
-        local filenames = prevfn ~= curfn and (curfn .. ' and ' .. prevfn) or curfn
-        local msg = ('E154: Duplicate tag "%s" in %s'):format(curtag, filenames)
-        vim.api.nvim_echo({ { msg } }, false, { err = true })
-      end
+  local prevtag, prevfn, has_duplicates = '', '', false
+  for _, tagline in ipairs(tags) do
+    local curtag, curfn, _ = unpack(tagline)
+    if curtag == prevtag then
+      has_duplicates = true
+      local filenames = prevfn ~= curfn and (curfn .. ' and ' .. prevfn) or curfn
+      local msg = ('E154: Duplicate tag "%s" in %s'):format(curtag, filenames)
+      vim.api.nvim_echo({ { msg } }, false, { err = true })
+    end
 
-      prevtag = curtag
-      prevfn = curfn
-    end
-    if has_duplicates then
-      error('duplicate tags')
-    end
+    prevtag = curtag
+    prevfn = curfn
   end
 
   -- (4) write tags to file
@@ -72,6 +67,10 @@ local function gen_tagsfile(helpfiles, outpath, include_helptags_tag)
     f:write(table.concat(tag, '\t') .. '\n')
   end
   f:close()
+
+  if has_duplicates then
+    error('duplicate tags')
+  end
 
   -- THIS HANGS THE TEST???
   -- vim.print('Helptags written to ' .. outpath)
