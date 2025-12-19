@@ -3,14 +3,13 @@ local M = {}
 local ts = vim.treesitter
 local query = ts.query.parse('vimdoc', '(tag (word) @tagname)')
 
---- @alias Tag { [1]: string, [2]: string, [3]: string}[] tuple of tag, file, and search command
+--- @alias Tag { [1]: string, [2]: string, [3]: string} tuple of tag, file, and search command
 
 --- Extract tags from helpfiles and combine in a single 'tags' file.
 --- @param helpfiles string[] list of helpfiles
 --- @param outpath string path to write the 'tags' file to.
 --- @param include_helptags_tag boolean true if the 'help-tags' tag should be included
 local function gen_tagsfile(helpfiles, outpath, include_helptags_tag)
-  local t = vim.uv.hrtime()
   ---@type Tag[]
   local tags = {}
 
@@ -49,7 +48,7 @@ local function gen_tagsfile(helpfiles, outpath, include_helptags_tag)
 
   -- (3) check duplicates
   do
-    local prevtag, prevfn, has_duplicates
+    local prevtag, prevfn, has_duplicates = '', '', false
     for _, tagline in ipairs(tags) do
       local curtag, curfn, _ = unpack(tagline)
       if curtag == prevtag then
@@ -74,7 +73,8 @@ local function gen_tagsfile(helpfiles, outpath, include_helptags_tag)
   end
   f:close()
 
-  print(('Helptags written to %s in %f seconds'):format(outpath, (vim.uv.hrtime() - t) / 1e9))
+  -- THIS HANGS THE TEST???
+  -- vim.print('Helptags written to ' .. outpath)
 end
 
 --- Create a "tags" file for all help files in the given directory.
@@ -85,26 +85,27 @@ end
 ---
 --- @param dir string Path to directory with help files. If `nil`, use every
 --- 'doc' directory in the runtimepath.
---- @param include_helptags? boolean (default: false) Whether to include the "help-tags" tag.
-function M.gen_tags(dir, include_helptags)
+--- @param include_index_tag? boolean (default: false) Whether to include the "help-tags" tag.
+function M.gen_tags(dir, include_index_tag)
   vim.validate('dir', dir, 'string')
-  vim.validate('include_helptags_tag', include_helptags, 'boolean', true)
+  vim.validate('include_index_tag', include_index_tag, 'boolean', true)
 
   local dirs = { vim.fs.normalize(dir) }
+
   if dir == 'ALL' then
     dirs = vim.api.nvim_get_runtime_file('doc', true)
   end
   local vimruntime = vim.fs.normalize(vim.env.VIMRUNTIME)
   for _, directory in ipairs(dirs) do
     -- always include the help-tags tag for the $VIMRUNTIME
-    include_helptags = include_helptags or directory == vimruntime
+    include_index_tag = include_index_tag or directory == vimruntime
 
     local files = vim.fs.find(function(name, _)
       return vim.endswith(name, '.txt')
     end, { path = directory, type = 'file', limit = math.huge })
 
     local outpath = vim.fs.joinpath(directory, 'tags')
-    gen_tagsfile(files, outpath, include_helptags)
+    gen_tagsfile(files, outpath, include_index_tag)
 
     -- handle translated help files per language
     local translated = vim.fs.find(function(name, _)
@@ -124,7 +125,7 @@ function M.gen_tags(dir, include_helptags)
 
     for lang, langfiles in pairs(per_lang) do
       local tagsfile = vim.fs.joinpath(directory, 'tags-' .. lang)
-      gen_tagsfile(langfiles, tagsfile, include_helptags)
+      gen_tagsfile(langfiles, tagsfile, include_index_tag)
     end
   end
 end
