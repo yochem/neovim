@@ -2477,6 +2477,29 @@ vim.fs.basename({file})                                    *vim.fs.basename()*
     Return: ~
         (`string?`) Basename of {file}
 
+vim.fs.copy({from}, {to}, {opts})                              *vim.fs.copy()*
+    WARNING: This feature is experimental/unstable.
+
+    Copies files or directories.
+
+    Note: {to} must be the full destination path, not a directory to copy
+    into. I.e. `vim.fs.copy('file.txt', '~/Documents/')` will NOT work.
+
+    Examples: >lua
+        vim.fs.copy('names.txt', 'data/names.txt')
+
+        vim.fs.copy('runtime/', 'build/runtime/', { recursive = true, force = true })
+<
+
+    Parameters: ~
+      • {from}  (`string`) Path of the source file or directory.
+      • {to}    (`string`) Path of target file or directory.
+      • {opts}  (`table?`) A table with the following fields:
+                • {recursive}? (`boolean`, default: `false`) Copy directories
+                  and their contents recursively.
+                • {force}? (`boolean`, default: `false`) Overwrite existing
+                  files or directories.
+
 vim.fs.dir({path}, {opts})                                      *vim.fs.dir()*
     Return an iterator over the items located in {path}
 

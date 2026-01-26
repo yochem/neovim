@@ -14,6 +14,7 @@ local test_source_path = t.paths.test_source_path
 local nvim_prog = n.nvim_prog
 local is_os = t.is_os
 local mkdir = t.mkdir
+local pcall_err = t.pcall_err
 
 local nvim_prog_basename = is_os('win') and 'nvim.exe' or 'nvim'
 
@@ -712,6 +713,84 @@ describe('vim.fs', function()
         eq('.', vim.fs.relpath('\\\\foo\\bar\\baz', '\\\\foo\\bar\\baz'))
         eq(nil, vim.fs.relpath('C:\\foo\\test', 'C:\\foo\\Test\\bar\\package.json'))
       end
+    end)
+  end)
+
+  describe('copy()', function()
+    -- all files are copied...
+    local function dirs_eq(original, copy)
+      for f, _ in vim.fs.dir(original, { depth = math.huge }) do
+        assert(vim.uv.fs_stat(vim.fs.joinpath(copy, f)))
+      end
+      -- ...and there are no extra files
+      for f, _ in vim.fs.dir(copy, { depth = math.huge }) do
+        assert(vim.uv.fs_stat(vim.fs.joinpath(original, f)))
+      end
+    end
+
+    before_each(function()
+      mkdir('Xtestfs')
+      mkdir('Xtestfs/src')
+      mkdir('Xtestfs/src/a')
+      mkdir('Xtestfs/src/a/b')
+      mkdir('Xtestfs/src/c')
+      io.open('Xtestfs/src/a/f1', 'w'):close()
+      io.open('Xtestfs/src/a/f2', 'w'):close()
+      io.open('Xtestfs/src/a/f3', 'w'):close()
+      io.open('Xtestfs/src/a/l1', 'w'):close()
+      -- similar to `cp`, should just be copied like a regular file
+      vim.uv.fs_symlink('l1', 'Xtestfs/src/a/l2')
+      io.open('Xtestfs/src/a/b/f1', 'w'):close()
+    end)
+
+    after_each(function()
+      rmdir('Xtestfs')
+    end)
+
+    it('works for files', function()
+      mkdir('Xtestfs/dst')
+      local file = 'Xtestfs/src/a/f1'
+      local target = 'Xtestfs/dst/f1'
+      vim.fs.copy(file, target)
+      assert(vim.uv.fs_stat(target))
+
+      -- should error with force=false and existing file
+      pcall_err(function()
+        vim.fs.copy(file, target)
+      end)
+
+      -- should overwrite with force=true and existing file
+      eq(nil, vim.fs.copy(file, target, { force = true }))
+      assert(vim.uv.fs_stat(target))
+    end)
+
+    it('works for directories', function()
+      vim.fs.copy('Xtestfs/src', 'Xtestfs/dst', { recursive = true })
+      dirs_eq('Xtestfs/src', 'Xtestfs/dst')
+
+      -- errors without force=true
+      pcall_err(function()
+        vim.fs.copy('Xtestfs/src', 'Xtestfs/dst')
+      end)
+
+      -- overwrites with force=true
+      vim.fs.copy('Xtestfs/src', 'Xtestfs/dst', { recursive = true, force = true })
+      dirs_eq('Xtestfs/src', 'Xtestfs/dst')
+
+      -- can copy inside source directory
+      vim.fs.copy('Xtestfs/src', 'Xtestfs/src/dst', { recursive = true })
+      assert(not vim.uv.fs_stat('Xtestfs/src/dst/dst'))
+      rmdir('Xtestfs/src/dst')
+
+      -- can place files/directories in existing directory
+      vim.fs.copy('Xtestfs/src/a', 'Xtestfs/dst/a1', { recursive = true })
+      dirs_eq('Xtestfs/src/a', 'Xtestfs/dst/a')
+      dirs_eq('Xtestfs/src/a', 'Xtestfs/dst/a1')
+    end)
+
+    it('normalizes paths first', function ()
+      vim.fs.copy('Xtestfs/src/a/..', 'Xtestfs/../Xtestfs/dst', { recursive = true })
+      dirs_eq('Xtestfs/src', 'Xtestfs/dst')
     end)
   end)
 end)

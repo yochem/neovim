@@ -2635,6 +2635,8 @@ M.funcs = {
       If a file with name {to} already exists, it will fail.
       Note that it does not handle directories (yet).
 
+      To copy directories recursively, use |vim.fs.copy()|.
+
       This function is not available in the |sandbox|.
     ]],
     name = 'filecopy',
