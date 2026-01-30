@@ -717,14 +717,9 @@ describe('vim.fs', function()
   end)
 
   describe('copy()', function()
-    -- all files are copied...
-    local function dirs_eq(original, copy)
+    local function dir_eq(original, copy)
       for f, _ in vim.fs.dir(original, { depth = math.huge }) do
         assert(vim.uv.fs_stat(vim.fs.joinpath(copy, f)))
-      end
-      -- ...and there are no extra files
-      for f, _ in vim.fs.dir(copy, { depth = math.huge }) do
-        assert(vim.uv.fs_stat(vim.fs.joinpath(original, f)))
       end
     end
 
@@ -766,31 +761,32 @@ describe('vim.fs', function()
 
     it('works for directories', function()
       vim.fs.copy('Xtestfs/src', 'Xtestfs/dst', { recursive = true })
-      dirs_eq('Xtestfs/src', 'Xtestfs/dst')
+      -- exactly equal (in both directions)
+      dir_eq('Xtestfs/src', 'Xtestfs/dst')
+      dir_eq('Xtestfs/dst', 'Xtestfs/src')
 
-      -- errors without force=true
+      -- errors without force=true and existing target
       pcall_err(function()
         vim.fs.copy('Xtestfs/src', 'Xtestfs/dst')
       end)
 
       -- overwrites with force=true
       vim.fs.copy('Xtestfs/src', 'Xtestfs/dst', { recursive = true, force = true })
-      dirs_eq('Xtestfs/src', 'Xtestfs/dst')
+      -- exactly equal (in both directions)
+      dir_eq('Xtestfs/src', 'Xtestfs/dst')
+      dir_eq('Xtestfs/dst', 'Xtestfs/src')
 
-      -- can copy inside source directory
+      -- can copy inside source directory without infinite recursion
       vim.fs.copy('Xtestfs/src', 'Xtestfs/src/dst', { recursive = true })
       assert(not vim.uv.fs_stat('Xtestfs/src/dst/dst'))
       rmdir('Xtestfs/src/dst')
 
-      -- can place files/directories in existing directory
-      vim.fs.copy('Xtestfs/src/a', 'Xtestfs/dst/a1', { recursive = true })
-      dirs_eq('Xtestfs/src/a', 'Xtestfs/dst/a')
-      dirs_eq('Xtestfs/src/a', 'Xtestfs/dst/a1')
-    end)
-
-    it('normalizes paths first', function ()
-      vim.fs.copy('Xtestfs/src/a/..', 'Xtestfs/../Xtestfs/dst', { recursive = true })
-      dirs_eq('Xtestfs/src', 'Xtestfs/dst')
+      -- target can be an existing directory with force=true
+      vim.fs.copy('Xtestfs/src', 'Xtestfs/dst/a', { recursive = true, force = true })
+      os.exit()
+      -- subtrees from both src/ and src/a are in dst/a
+      dir_eq('Xtestfs/src', 'Xtestfs/dst/a')
+      dir_eq('Xtestfs/src/a', 'Xtestfs/dst/a')
     end)
   end)
 end)

@@ -824,91 +824,92 @@ function M.relpath(base, target, opts)
   return vim.startswith(target, base) and target:sub(#base + 1) or nil
 end
 
---- Copies file or raises the error if one occurs.
---- @param from string Path
---- @param dest string Path
---- @param force? boolean Ignore existing file
-local function copyfile(from, dest, force)
-  ---@diagnostic disable-next-line:missing-fields
-  assert(uv.fs_copyfile(from, dest, { excl = not force }))
-end
 
---- Creates directory or raises error if one occurs.
---- @param dir string Path
---- @param force? boolean Ignore existing directory ('EEXIST')
-local function mkdir(dir, force)
-  local _, err, errnm = uv.fs_mkdir(dir, tonumber('755', 8))
-  if err and (errnm ~= 'EEXIST' or not force) then
-    error(err)
+---Helper to copy file {from} to {dest} or create a new directory at {dest}.
+---@param from string Path
+---@param dest string Path
+---@param fromtype string As returned by `uv.fs_stat(from).type`. Not evaluated here because the
+---                       caller M.copy() already does that.
+---@param force boolean? Overwrite file or directory {dest}.
+local function cp(from, dest, fromtype, force)
+  -- TODO: preserve permissions?
+  local err
+  if fromtype == 'directory' then
+    local err_name
+    _, err, err_name = uv.fs_mkdir(dest, tonumber('777', 8))
+    -- TODO: if EEXIST and force, rm dir first?
+    if err_name == 'EEXIST' and force then
+      err = nil
+    end
+  else
+    ---@diagnostic disable-next-line:missing-fields
+    _, err, _ = uv.fs_copyfile(from, dest, { excl = not force })
+  end
+  if err then
+    error(string.format('copy "%s" -> "%s": %s', from, dest, err))
   end
 end
 
 --- @class vim.fs.copy.Opts
 --- @inlinedoc
 ---
---- Copy directories and their contents recursively.
+--- Copy a directory and its contents recursively.
 --- (default: `false`)
 --- @field recursive? boolean
 ---
---- Overwrite existing files or directories.
+--- Overwrite existing file or directory.
 --- (default: `false`)
 --- @field force? boolean
 
---- Copies files or directories.
+--- Copies a file or a directory.
 ---
---- Note: {to} must be the full destination path, not a directory to copy into.
---- I.e. `vim.fs.copy('file.txt', '~/Documents/')` will NOT work.
+--- Note: {to} must be the full destination path, not a directory to copy into. I.e.
+--- `vim.fs.copy('file.txt', 'media/')` will NOT work. Use `'media/file.txt'` as target instead.
+---
+--- Symlinks are followed and copied like regular files. See |vim.uv.fs_copyfile()| and `:Man 3
+--- copyfile`.
 ---
 --- Examples:
 --- ```lua
 --- vim.fs.copy('names.txt', 'data/names.txt')
 ---
---- vim.fs.copy('runtime/', 'build/runtime/', { recursive = true, force = true })
+--- vim.fs.copy('.config/nvim/', '.config/nvim-new/', { recursive = true, force = true })
 --- ```
 --- @since 14
---- @param from string Path of the source file or directory.
---- @param to string Path of target file or directory.
+--- @param from string Path of the source (not expanded/resolved).
+--- @param to string Path of target (not expanded/resolved).
 --- @param opts? vim.fs.copy.Opts
 function M.copy(from, to, opts)
   opts = opts or {}
   vim.validate('from', from, 'string')
   vim.validate('to', to, 'string')
-  vim.validate('opts', table, 'table')
   vim.validate('opts.recursive', opts.recursive, 'boolean', true)
   vim.validate('opts.force', opts.force, 'boolean', true)
 
-  -- UV doesn't expand things like '~/'
-  from = vim.fs.normalize(from)
-  to = vim.fs.normalize(to)
-  local from_stat, err, _ = uv.fs_stat(from)
-  assert(from_stat, err)
+  local from_stat, _, _ = assert(uv.fs_stat(from))
 
-  -- Prevent infinite recursion if the target {to} is a subdirectory of {from}
-  -- by skipping the current subdirectory if its path is the same as the
-  -- target.
-  local abspath_to = vim.fs.abspath(to)
-  local function not_target(dir)
-    return vim.fs.abspath(vim.fs.joinpath(from, dir)) ~= abspath_to
+  if from_stat.type == 'directory' and not opts.recursive then
+    error(string.format('%s is a directory', from))
   end
 
-  if from_stat.type ~= 'directory' then
-    copyfile(from, to, opts.force)
-  else
-    if not opts.recursive then
-      error(('"%s" is a directory but opts.recursive is not set'):format(from))
+  cp(from, to, from_stat.type, opts.force)
+
+  if from_stat.type == 'directory' then
+    -- Prevent infinite recursion if the target {to} is a subdirectory of {from}.
+    local abspath_to = vim.fs.abspath(to)
+    local function not_target(dir)
+      return vim.fs.abspath(vim.fs.joinpath(from, dir)) ~= abspath_to
     end
-    mkdir(to, opts.force)
+
     for fname, ftype in vim.fs.dir(from, { depth = math.huge, skip = not_target }) do
+      local src = vim.fs.joinpath(from, fname)
       local dest = vim.fs.joinpath(to, fname)
-      if ftype ~= 'directory' then
-        local src = vim.fs.joinpath(from, fname)
-        copyfile(src, dest, opts.force)
-      else
-        -- The {skip} option of vim.fs.dir prevents traversing into the target
-        -- directory, but we still need to avoid creating an empty directory.
-        if not_target(fname) then
-          mkdir(dest, opts.force)
-        end
+      -- The {skip} option of vim.fs.dir prevents traversing into the target directory, but we
+      -- still need to avoid creating an empty directory. Optimization: check ftype first because
+      -- target can only be a directory and not_target() is only true exactly once, while otherwise
+      -- it might be called thousands of times.
+      if ftype ~= 'directory' or not_target(fname) then
+        cp(src, dest, ftype, opts.force)
       end
     end
   end
