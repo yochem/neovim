@@ -2,6 +2,7 @@ if vim.g.loaded_archive_plugin ~= nil then
   return
 end
 vim.g.loaded_archive_plugin = true
+vim.g.loaded_zipPlugin = true
 
 local archive_extensions = {
   '*.aar',
@@ -121,6 +122,6 @@ vim.api.nvim_create_autocmd('BufReadCmd', {
   pattern = archive_extensions,
   group = augroup,
   callback = function(ev)
-    require('nvim.archive').list()
+    require('nvim.archive').show_list(ev.buf, ev.file)
   end
 })
