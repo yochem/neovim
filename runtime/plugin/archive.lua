@@ -2,7 +2,10 @@ if vim.g.loaded_archive_plugin ~= nil then
   return
 end
 vim.g.loaded_archive_plugin = true
+
 vim.g.loaded_zipPlugin = true
+-- vim.g.loaded_tarPlugin = true
+-- vim.g.loaded_gzip = true
 
 local archive_extensions = {
   '*.aar',
@@ -89,6 +92,8 @@ local tar_patterns = {
 local augroup = vim.api.nvim_create_augroup('nvim.archive', {})
 
 local pattern = { 'zipfile:*', 'tarfile:*' }
+
+-- directly from zipPlugin.vim/tarPlugin.vim, not sure why necessary
 if vim.fn.has('unix') == 1 then
   table.insert(pattern, 'zipfile:*/*')
   table.insert(pattern, 'tarfile:*/*')
@@ -98,7 +103,7 @@ vim.api.nvim_create_autocmd('BufReadCmd', {
   pattern = pattern,
   group = augroup,
   callback = function(ev)
-    require('nvim.archive').extract()
+    require('nvim.archive').show_file(ev.buf, ev.file)
   end
 })
 
@@ -106,7 +111,7 @@ vim.api.nvim_create_autocmd('FileReadCmd', {
   pattern = pattern,
   group = augroup,
   callback = function(ev)
-    require('nvim.archive').extract()
+    require('nvim.archive').show_file(ev.buf, ev.file)
   end
 })
 
