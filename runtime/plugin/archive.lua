@@ -103,7 +103,7 @@ vim.api.nvim_create_autocmd('BufReadCmd', {
   pattern = pattern,
   group = augroup,
   callback = function(ev)
-    require('nvim.archive').show_file(ev.buf, ev.file)
+    require('nvim.archive').open_file(ev.buf, ev.file)
   end
 })
 
@@ -111,7 +111,7 @@ vim.api.nvim_create_autocmd('FileReadCmd', {
   pattern = pattern,
   group = augroup,
   callback = function(ev)
-    require('nvim.archive').show_file(ev.buf, ev.file)
+    require('nvim.archive').open_file(ev.buf, ev.file)
   end
 })
 
@@ -127,6 +127,6 @@ vim.api.nvim_create_autocmd('BufReadCmd', {
   pattern = archive_extensions,
   group = augroup,
   callback = function(ev)
-    require('nvim.archive').show_list(ev.buf, ev.file)
+    require('nvim.archive').open_listing(ev.buf, ev.file)
   end
 })
