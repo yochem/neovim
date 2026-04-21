@@ -12,12 +12,13 @@ end
 ---@param cmd string[]
 ---@param cb fun(err: string?, text: string[])
 local function system_out(cmd, cb)
+  -- TODO: avoid callback-hell once vim.async lands
   vim.system(cmd, { text = true }, function (obj)
     local err
-    if obj.code ~= 0 or obj.signal ~= 0 then
-      err = ('command exited with exit code %d: "%s"'):format(obj.code, table.concat(cmd, ' '))
-    elseif obj.signal ~= 0 then
-      err = ('command received signal %d: "%s"'):format(obj.signal, table.concat(cmd, ' '))
+    if obj.signal ~= 0 then
+      err = ('command "%s" received signal %d'):format(table.concat(cmd, ' '), obj.signal)
+    elseif obj.code ~= 0 then
+      err = ('command "%s" exited with exit code %d'):format(table.concat(cmd, ' '), obj.code)
     end
     cb(err, vim.split(obj.stdout, '\n', { plain = true, trimempty = true }))
   end)
@@ -113,40 +114,40 @@ end
 ---@param source string Path to the archive file.
 function M.open_listing(buf, source)
   M.list(source, nil, vim.schedule_wrap(function(err, files)
-    -- TODO: if not a zip file, read file normally (ignore BufReadCmd) and return early
-    if err then
-      errprint(err)
-      return
-    end
-
     vim.bo[buf].swapfile = false
     vim.bo[buf].buftype = 'nofile'
     vim.bo[buf].bufhidden = 'hide'
     vim.bo[buf].buflisted = false
     vim.bo[buf].modifiable = false
     vim.bo[buf].readonly = true
+
+    if err then
+      errprint(err)
+      -- TODO: if not a zip file, read file normally (ignore BufReadCmd) and return early
+      return
+    end
+
     -- TODO(later): set correct archive ft
     vim.bo[buf].filetype = 'zip'
-    vim.wo.wrap = false
-
-    -- TODO: decide if we want to setup BufWriteCmd here or in plugin/archive.lua
-    local function open_file()
-      -- TODO(s:ZipBrowseSelect): track originating browse buffer/window for writeback parity (s:zipfile_{winnr()}).
-      -- TODO(s:ZipBrowseSelect): honor g:zip_nomax and no-swap split behavior.
-      local entry = vim.api.nvim_get_current_line()
-      vim.cmd.split(string.format('zipfile://%s::%s', source, entry))
-    end
 
     vim.keymap.set('n', 'x', function()
       -- TODO(zip#Extract): implement extract-under-cursor with overwrite checks and traversal guards.
       -- TODO(zip#Extract): mirror shell escaping compatibility for cmd.exe and unzip 6.0 leading '-' workaround.
     end, { buf = buf })
 
-    vim.keymap.set('n', '<CR>', open_file, { buf = buf })
+    -- TODO: decide if we want to setup BufWriteCmd here or in plugin/archive.lua
+    -- TODO(s:ZipBrowseSelect): track originating browse buffer/window for writeback parity (s:zipfile_{winnr()}).
+    vim.keymap.set('n', '<CR>', function()
+      local entry = vim.api.nvim_get_current_line()
+      vim.cmd.split(string.format('zipfile://%s::%s', source, entry))
+    end, { buf = buf })
+
     if vim.o.mouse then
-      -- TODO: this should move in open_file lol
-      -- vim.cmd('norm! <leftmouse>')
-      vim.keymap.set('n', '<leftmouse>', open_file, { buf = buf })
+      vim.keymap.set('n', '<leftmouse>', function()
+        vim.cmd('norm! <leftmouse>')
+        local entry = vim.api.nvim_get_current_line()
+        vim.cmd.split(string.format('zipfile://%s::%s', source, entry))
+      end, { buf = buf })
     end
 
     -- TODO: filter lines
